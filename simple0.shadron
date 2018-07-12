@@ -1,0 +1,57 @@
+#include <math_constants>
+
+parameter float light_latitude = PI : range(0., PI/2.);
+parameter float light_longitude = PI : range(0, TAU);
+parameter vec3 diff_color  = vec3(.5, .5, .5);
+parameter float specular_reflection = .5;
+parameter float shininess = 10 : range(1, 100);
+
+glsl vec3 light_dir() {
+return vec3(
+    -cos(light_latitude)*sin(light_longitude),
+    sin(light_latitude),
+    cos(light_latitude)*cos(light_longitude)
+    );
+}
+
+glsl vec3 angles(vec2 position){
+    // nx and ny between -1 and 1, nz just follows trigonometry
+    vec2 nxny = 2*position-1;
+    if(pow(nxny.x, 2) + pow(nxny.y, 2) >1){
+        return vec3(0);
+    }
+    float nz  = sqrt(1 - pow(nxny.x, 2) - pow(nxny.y, 2));
+    return vec3(nxny, nz);
+}
+
+// image sphere_normal = glsl(angles, vec2(500, 500));
+
+glsl vec3 lambert(vec2 position){
+    // Light source direction
+    vec3 l = normalize(light_dir());
+    // normal of material
+    vec3 n = normalize(angles(position));
+    float diff_light = max(0, dot(l, n));
+    return diff_color*diff_light;
+}
+
+image sphere_lambertian = glsl(lambert, vec2(500, 500));
+
+glsl vec3 lambert_phong(vec2 position){
+    // Light source direction
+    vec3 l = normalize(light_dir());
+    // normal of material
+    vec3 n = normalize(angles(position));
+    // Direction of a perfectly reflected ray
+    vec3 r = 2 * n * dot(l, n) - l;
+    // Direction toward the viewer
+    vec3 v = vec3(0,0,1);
+
+    float diff_light = max(0, dot(l, n));
+
+    float spec = specular_reflection * pow(max(0, dot(r, v)), shininess);
+
+    return diff_color*diff_light + spec;
+}
+
+image sphere_lambert_phong = glsl(lambert_phong, vec2(500, 500));
