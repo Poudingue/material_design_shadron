@@ -2,30 +2,34 @@
 #define π PI
 #define τ TAU
 
-parameter int size = 500 : range(10, 1000);
-parameter float light_latitude  = 0.8 : range(-π/2, π/2);
-parameter float light_longitude = 5 : range(0, τ);
-parameter vec3 diff_color  = vec3( .4, .2, .6) : color();
+parameter float light_latitude  =  45 : range(-90,  90);
+parameter float light_longitude = 45 : range(  0, 360);
+parameter vec3 diff_color  = vec3( .8, .0, .0) : color();
 // Colored specular are usually for metals, with black diffuse
 parameter vec3 spec_color  = vec3(1  ,1  ,1  ) : color();
 // For Phong and Blinn-Phong
 parameter float shininess  = 10 : range(0, 100);
 // For Oren-Nayar and Cook-Torrance
-parameter float σ = .05 : range(0, 1); //Roughness
+parameter float σ = .1 : range(0, 1); //Roughness
 
 // Default value is Water at 20°C
 // Rare to have materials with an IOR above 3. Diamond is at 2.418
 parameter float IOR = 1.333 : range(1, 3);
 
-// Gamma correction. 2.2 for most monitors
-parameter float γ = 2.2 : range(1, 3);
+
+parameter int size = 800 : range(10, 1000);
+// Gamma correction for input image. 2.2 most of the time
+parameter float γ_image  = 2.2 : range(1, 3);
+// Gamma correction for your screen. 2.2 most of the time
+parameter float γ_screen = 2.2 : range(1, 3);
 // amplification of error between reference and our model
 parameter float diff_amplification = 10 : range(1, 100);
 
-image reference = file("sphere.png") : full_range(), hidden();
+image reference = file("sphere.png") : full_range();
 
 glsl vec3 reference_visualisation(vec2 position){
-	return pow(texture(reference, position).rgb, vec3(1/γ));
+	// converting to the correct gamma for screen display
+	return pow(texture(reference, position).rgb, vec3(γ_image/γ_screen));
 }
 
 // For comparison
@@ -34,18 +38,19 @@ image vis_reference = glsl(reference_visualisation, vec2(size));
 // light_dir gives the direction of the light as a vec3
 
 glsl vec3 light_dir() {
+	float light_latitude  =  light_latitude  * π/180;
+	float light_longitude = -light_longitude * π/180;
 return vec3(
-    cos(light_latitude)*sin(light_longitude),
+    cos(light_latitude) * sin(light_longitude),
     sin(light_latitude),
-    cos(light_latitude)*cos(light_longitude)
+    cos(light_latitude) * cos(light_longitude)
     );
 }
 
 
-
 glsl vec3 sphere_normals(vec2 position){
     // nx and ny between -1 and 1, nz just follows trigonometry
-    vec2 nxny = 2 * position - 1;
+    vec2 nxny = 2 * position - 1.;
 	float lennxny = length(nxny);
 	if (lennxny > 1){
 		return vec3(0, 0, -1);
@@ -74,6 +79,23 @@ glsl float lambert(vec2 position){
 
 // image sphere_lambert = glsl(lambert, vec2(size, size));
 
+
+glsl float max_diffuse(vec2 position){
+	// normal of material
+	vec3 n = normalize(sphere_normals(position));
+	if (n.b < 0){
+		return 0;
+	}
+    // Light source direction
+    vec3 l = normalize(light_dir());
+    // Direction toward the viewer
+    vec3 v = vec3(0,0,1);
+	float higher= .78;
+	float multiplier = higher* max(0,pow(dot(l, n),1.3));
+    return multiplier*max(0, dot(l, n));
+}
+
+// image sphere_max_diffuse = glsl(max_diffuse, vec2(size, size));
 
 glsl float oren_nayar(vec2 position){
 	// normal of material
@@ -117,7 +139,7 @@ Different models for specular
 glsl float phong(vec2 position){
 	// normal of material
 	vec3 n = normalize(sphere_normals(position));
-	if (n.b<0){
+	if (n.b < 0){
 		return 0;
 	}
     // Light source direction
@@ -125,7 +147,7 @@ glsl float phong(vec2 position){
     // Direction of a perfectly reflected ray
     vec3 r = 2 * n * dot(l, n) - l;
     // Direction toward the viewer
-    vec3 v = vec3(0,0,1);
+    vec3 v = vec3(0, 0, 1);
 	// Phong
     return pow(max(0, dot(r, v)), shininess);
 }
@@ -135,38 +157,58 @@ glsl float phong(vec2 position){
 glsl float blinn_phong(vec2 position){
 	// normal of material
 	vec3 n = normalize(sphere_normals(position));
-	if (n.b<0){
+	if (n.b < 0){
 		return 0;
 	}
     // Light source direction
     vec3 l = normalize(light_dir());
     // Direction toward the viewer
-    vec3 v = vec3(0,0,1);
+    vec3 v = vec3(0, 0, 1);
 	// Average of viewer and light direction
 	vec3 h = normalize(l + v);
 
 	// 4 times the phong shininess
-    return pow(max(0, dot(h, n)), 4*shininess);
+	return pow(max(0, dot(h, n)), 4 * shininess);
 
 }
 
 // image sphere_blinn_phong = glsl(blinn_phong, vec2(size, size));
+
+glsl float max_metal(vec2 position){
+	// normal of material
+	vec3 n = normalize(sphere_normals(position));
+	if (n.b < 0){
+		return 0;
+	}
+    // Light source direction
+    vec3 l = normalize(light_dir());
+    // Direction toward the viewer
+    vec3 v = vec3(0, 0, 1);
+	// Average of viewer and light direction
+	vec3 h = normalize(l + v);
+	// Experimenting with complementary lobes
+	float modified_blinn_phong = 2*pow(max(0, dot(h, n)), 4 * shininess);
+	float negative_lobe = - 1.5*pow(max(0, dot(h, n)),5 * shininess);
+    return modified_blinn_phong + negative_lobe;
+
+}
+
+// image sphere_max_metal = glsl(max_metal, vec2(size, size));
 
 // x component for the spcular reflection
 // the y component is for light which will be used by the diffuse
 glsl vec2 cook_torrance(vec2 position){
 	// normal of material
 	vec3 n = normalize(sphere_normals(position));
-	if (n.b<0){
-		return vec2(0);
+	if (n.b < 0){
+		return vec2(0, 1);
 	}
     // Light source direction
     vec3 l = normalize(light_dir());
     // Direction toward the viewer
-    vec3 v = vec3(0,0,1);
+    vec3 v = vec3(0, 0, 1);
 	// Average of viewer and light direction
 	vec3 h = normalize(l + v);
-
 
 	float HdotN = dot(h, n);
 	float VdotN = dot(v, n);
@@ -174,7 +216,7 @@ glsl vec2 cook_torrance(vec2 position){
 	float VdotH = dot(v, h);
 
 	//Precalculations for Beckmann
-	float m² = σ*σ;//m is the rms of surface microfacet, which is σ, the standard deviation of our gaussian distribution of microfacets
+	float m² = σ * σ;//m is the rms of surface microfacet, which is σ, the standard deviation of our gaussian distribution of microfacets
 
 	// α is never directly used, only cos²α in our simplified formula
 	// So we can replace cos²α with HdotN²
@@ -186,9 +228,10 @@ glsl vec2 cook_torrance(vec2 position){
 	float cos²α = HdotN * HdotN; //less costly than acos then cos then ²
 
 	float cos⁴α = cos²α * cos²α;
-	float tan²α_over_m² = (1 - cos²α)/(cos²α * m²);
+	float tan²α_over_m² = (1 - cos²α) / (cos²α * m²);
 	// Beckmann distribution
-	float D = exp(-tan²α_over_m²)/(π*m²*cos⁴α);
+	float D = exp(-tan²α_over_m²) / (π * m² * cos⁴α);
+
 	// Fresnel
 	// I used Schlick's approximation for now,
 	// will maybe add the full equation later
@@ -196,21 +239,22 @@ glsl vec2 cook_torrance(vec2 position){
 	float n1 = 1.00029;//Air
 	float n2 = IOR;
 
-	float R₀ = (n1-n2)/(n1+n2);
+	float R₀ = (n1 - n2) / (n1 + n2);
 	R₀ *= R₀;
-	float schlick = R₀ + (1-R₀) * pow(1-VdotN,5);
+	float schlick = R₀ + (1 - R₀) * pow(1 - VdotN, 5);
+
 	float F = schlick;
 
 	// Geometric attenuation term.
 	// Can probably be simplified a lot, only difference being VdotN or LdotN
 	float G = min(1,
 		min(
-			2*HdotN*VdotN/VdotH,
-			2*HdotN*LdotN/VdotH
+			2 * HdotN * VdotN / VdotH,
+			2 * HdotN * LdotN / VdotH
 			)
 		);
-	float final = D*F*G / (4*VdotN*LdotN);
-	return vec2(final, 1-F);// Return as y the complementary to Fresnel to use for diffuse illum
+	float final = D * F * G / (4 * VdotN * LdotN);
+	return vec2(final, 1 - F);// Return as y the complementary to Fresnel to use for diffuse illum
 
 }
 
@@ -223,52 +267,70 @@ Various mixes of specular and diffuse
 glsl vec3 lambert_phong(vec2 position){
 	float lambert = lambert(position);
 	float phong   =   phong(position);
-	return pow(lambert * pow(diff_color, vec3(γ))
-			   + phong * pow(spec_color, vec3(γ)),
-										 vec3(1/γ));
-
+	return pow(lambert * diff_color + phong * spec_color, vec3(1/γ_screen));
 }
 
 glsl vec3 lambert_blinn_phong(vec2 position){
 	float lambert     =     lambert(position);
 	float blinn_phong = blinn_phong(position);
-	return pow(lambert * pow(diff_color, vec3(γ))
-		 + blinn_phong * pow(spec_color, vec3(γ)),
-										 vec3(1/γ));
+	return pow(lambert * diff_color + blinn_phong * spec_color, vec3(1/γ_screen));
 }
 
 glsl vec3 lambert_cook_torrance(vec2 position){
 	float lambert       =       lambert(position);
 	vec2  cook_torrance = cook_torrance(position);
-	lambert*=cook_torrance.y;
-	return pow(lambert * pow(diff_color, vec3(γ))
-	 + cook_torrance.x * pow(spec_color, vec3(γ)),
-										 vec3(1/γ));
+	lambert *= cook_torrance.y;
+	return pow(lambert * diff_color + cook_torrance.x * spec_color, vec3(1/γ_screen));
 }
+
+
+
+glsl vec3 max_max_metal(vec2 position){
+	float max_diffuse = max_diffuse(position);
+	float max_metal   = max_metal(position);
+	return pow(max_diffuse * diff_color + max_metal * spec_color, vec3(1/γ_screen));
+}
+
+
+
+glsl vec3 max_phong(vec2 position){
+	float max_diffuse = max_diffuse(position);
+	float phong       =       phong(position);
+	return pow(max_diffuse * diff_color + phong * spec_color, vec3(1/γ_screen));
+}
+
+glsl vec3 max_blinn_phong(vec2 position){
+	float max_diffuse = max_diffuse(position);
+	float blinn_phong = blinn_phong(position);
+	return pow(max_diffuse * diff_color + blinn_phong * spec_color, vec3(1/γ_screen));
+}
+
+glsl vec3 max_cook_torrance(vec2 position){
+	float max_diffuse   =   max_diffuse(position);
+	vec2  cook_torrance = cook_torrance(position);
+	max_diffuse *= cook_torrance.y;
+	return pow(max_diffuse * diff_color + cook_torrance.x * spec_color, vec3(1/γ_screen));
+}
+
+
 
 glsl vec3 oren_nayar_phong(vec2 position){
 	float oren_nayar  =  oren_nayar(position);
 	float phong       =       phong(position);
-	return pow(oren_nayar * pow(diff_color, vec3(γ))
-				  + phong * pow(spec_color, vec3(γ)),
-											vec3(1/γ));
+	return pow(oren_nayar * diff_color + phong * spec_color, vec3(1/γ_screen));
 }
 
 glsl vec3 oren_nayar_blinn_phong(vec2 position){
 	float oren_nayar  =  oren_nayar(position);
 	float blinn_phong = blinn_phong(position);
-	return pow(oren_nayar * pow(diff_color, vec3(γ))
-			+ blinn_phong * pow(spec_color, vec3(γ)),
-											vec3(1/γ));
+	return pow(oren_nayar * diff_color + blinn_phong * spec_color, vec3(1/γ_screen));
 }
 
 glsl vec3 oren_nayar_cook_torrance(vec2 position){
 	float oren_nayar    =    oren_nayar(position);
 	vec2  cook_torrance = cook_torrance(position);
 	oren_nayar *= cook_torrance.y;
-	return pow(oren_nayar * pow(diff_color, vec3(γ))
-		+ cook_torrance.x * pow(spec_color, vec3(γ)),
-											vec3(1/γ));
+	return pow(oren_nayar * diff_color + cook_torrance.x * spec_color, vec3(1/γ_screen));
 }
 
 

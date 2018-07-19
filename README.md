@@ -9,11 +9,13 @@ It allows import of a reference image for comparison, and display negative and p
 
 Diffuse models :
 - Lambertian
+- Max diffuse (an attempt to emulate 3dsmax diffuse model. Only works for light at latitude and longitude 0 and render with iray for now)
 - Oren-Nayar
 
 Specular models :
 - Phong
 - Blinn-Phong
+- Max metal (an attempt to emulate 3dsmax “Metal” material. Useless for now.)
 - Cook-Torrance (For now with Schlick's approximation)
 
 ## Parameters
@@ -30,7 +32,6 @@ For the material itself :
 For visualisation (and color picking):
 
 - size : The width and height of windows
-- γ : gamma correction of your screen. Most of the time 2.2.
+- γ_image : gamma correction of the reference image. Most of the time 2.2.
+- γ_screen : gamma correction of your screen. Most of the time 2.2.
 - diff_amplification : Amplification applied to the comparison windows.
-
-/!\ The reference file should have no gamma correction for now
